@@ -1,5 +1,4 @@
 import sys, os
-sys.path.append('./rxnft_vae')
 
 import rdkit
 import rdkit.Chem as Chem
@@ -21,14 +20,14 @@ import pickle as pickle
 import yaml
 import networkx as nx
 
-from reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, get_qed_score,get_clogp_score
-from reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
-from fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
-from vae import FTRXNVAE, set_batch_nodeID, bFTRXNVAE
-from mpn import MPN,PP,Discriminator
+from rxnft_vae.reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, get_qed_score,get_clogp_score
+from rxnft_vae.reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
+from rxnft_vae.fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
+from rxnft_vae.vae import FTRXNVAE, set_batch_nodeID, bFTRXNVAE
+from rxnft_vae.mpn import MPN,PP,Discriminator
+import rxnft_vae.sascorer as sascorer
 import random
-import sascorer
-  
+
 from rdkit import Chem
 from sklearn.model_selection import train_test_split
 

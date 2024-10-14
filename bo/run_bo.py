@@ -15,12 +15,12 @@ import math, random, sys
 from optparse import OptionParser
 from collections import deque
 
-from reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, get_qed_score,get_clogp_score
-from reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
-from fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
-from vae import FTRXNVAE, set_batch_nodeID
-from mpn import MPN,PP,Discriminator
-from evaluate import Evaluator
+from rxnft_vae.reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, get_qed_score,get_clogp_score
+from rxnft_vae.reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
+from rxnft_vae.fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
+from rxnft_vae.vae import FTRXNVAE, set_batch_nodeID, bFTRXNVAE
+from rxnft_vae.mpn import MPN,PP,Discriminator
+import rxnft_vae.sascorer as sascorer
 import random
 import numpy as np
 import networkx as nx

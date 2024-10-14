@@ -6,12 +6,11 @@ from rdkit.Chem import MolFromSmiles, MolToSmiles
 from rdkit.Chem import rdmolops
 from rdkit.Chem import QED
 import networkx as nx
-from reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, check
-from reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
+from rxnft_vae.reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, check
+from rxnft_vae.reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
 import numpy as np
 from collections import deque
-from fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
-
+from rxnft_vae.fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
 
 def print_reaction(rxn):
 	# get order

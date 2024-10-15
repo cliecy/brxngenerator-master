@@ -1,5 +1,7 @@
-import sys, os
 
+import sys, os
+import pickle
+sys.path.append(os.path.abspath('/home/gzou/brxngenerator-master/rxnft_vae'))
 import rdkit
 import rdkit.Chem as Chem
 from rdkit.Chem import QED, Descriptors, rdmolops
@@ -375,6 +377,9 @@ class bVAE_IM(object):
         # smiles_new = self.bvae_model.decode_from_binary(binary_new)   # 1 x 1
         # mol_new = Chem.MolFromSmiles(smiles_new)
         print('========', binary_new.shape)
+        
+        
+        # 重要
         res= self.decode_many_times(binary_new)
         if res is not None:
             smiles_list = [re[0] for re in res]
@@ -382,7 +387,7 @@ class bVAE_IM(object):
             #print(n_reactions)
             for re in res:
                 smiles = re[0]
-                if len(re[1].split(" ")) > 0 and smiles not in self.valid_smiles:
+                if len(re[1].split(" ")) > 0 and smiles not in self.valid_smiles and smiles is not None:
                     #print(smiles, re[1].split(" "))
                     self.valid_smiles.append(smiles)
                     self.new_features.append(latent)
@@ -476,6 +481,7 @@ class bVAE_IM(object):
         # print(self.X_train.shape, self.y_train.shape, np.array(scores)[ :, None ].shape)
         # logging.info("Iteration %d: QUBO energy -- %.4f, actual energy -- %.4f, smiles -- %s" % (self.iteration, energy[0]))
         
+        print(f"X_train shape: {self.X_train.shape}, y_train shape: {self.y_train.shape}")
         assert self.X_train.shape[0] == self.y_train.shape[0]
 
         return
@@ -554,7 +560,8 @@ if __name__ == "__main__":
 
     n_pairs = len(routes)
     ind_list = [i for i in range(n_pairs)]
-    fgm_trees = [FragmentTree(rxn_trees[i].molecule_nodes[0].smiles) for i in ind_list]
+    # fgm_trees = [FragmentTree(rxn_trees[i].molecule_nodes[0].smiles) for i in ind_list]
+    fgm_trees = pickle.load(open('fgm_trees.pkl', 'rb'))
     rxn_trees = [rxn_trees[i] for i in ind_list]
     data_pairs=[]
     for fgm_tree, rxn_tree in zip(fgm_trees, rxn_trees):
@@ -589,7 +596,7 @@ if __name__ == "__main__":
     latent_list =[]
     score_list=[]
     if metric =="qed":
-        for i, data_pair in enumerate(data_pairs):
+        for i, data_pair in enumerate(data_pairs[:100]):
             latent = model.encode([data_pair])
             #print(i, latent.size(), latent)
             latent_list.append(latent[0])

@@ -1,7 +1,7 @@
-
 import sys, os
-import pickle
-sys.path.append(os.path.abspath('/home/gzou/brxngenerator-master/rxnft_vae'))
+
+sys.path.append('/home/gzou/test/brxngenerator-master-master/rxnft_vae')
+
 import rdkit
 import rdkit.Chem as Chem
 from rdkit.Chem import QED, Descriptors, rdmolops
@@ -22,13 +22,15 @@ import pickle as pickle
 import yaml
 import networkx as nx
 
-from rxnft_vae.reaction_utils import get_mol_from_smiles, get_smiles_from_mol,read_multistep_rxns, get_template_order, get_qed_score,get_clogp_score
-from rxnft_vae.reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, extract_templates,stats
+from rxnft_vae.reaction_utils import get_mol_from_smiles, get_smiles_from_mol, read_multistep_rxns, get_template_order, \
+    get_qed_score, get_clogp_score
+from rxnft_vae.reaction import ReactionTree, extract_starting_reactants, StartingReactants, Templates, \
+    extract_templates, stats
 from rxnft_vae.fragment import FragmentVocab, FragmentTree, FragmentNode, can_be_decomposed
 from rxnft_vae.vae import FTRXNVAE, set_batch_nodeID, bFTRXNVAE
-from rxnft_vae.mpn import MPN,PP,Discriminator
-import rxnft_vae.sascorer as sascorer
+from rxnft_vae.mpn import MPN, PP, Discriminator
 import random
+import rxnft_vae.sascorer
 
 from rdkit import Chem
 from sklearn.model_selection import train_test_split
@@ -47,8 +49,9 @@ import time
 
 UPDATE_ITER = 1
 
+
 class TorchFM(nn.Module):
-    
+
     def __init__(self, n=None, k=None):
         # n: size of binary features
         # k: size of latent features
@@ -57,10 +60,10 @@ class TorchFM(nn.Module):
         self.lin = nn.Linear(n, 1)
 
     def forward(self, x):
-        out_1 = torch.matmul(x, self.V).pow(2).sum(1, keepdim=True) #S_1^2
-        out_2 = torch.matmul(x.pow(2), self.V.pow(2)).sum(1, keepdim=True) # S_2
-        
-        out_inter = 0.5*(out_1 - out_2)
+        out_1 = torch.matmul(x, self.V).pow(2).sum(1, keepdim=True)  # S_1^2
+        out_2 = torch.matmul(x.pow(2), self.V.pow(2)).sum(1, keepdim=True)  # S_2
+
+        out_inter = 0.5 * (out_1 - out_2)
         out_lin = self.lin(x)
         out = out_inter + out_lin
         out = out.squeeze(dim=1)
@@ -69,7 +72,7 @@ class TorchFM(nn.Module):
 
 
 class MolData(Dataset):
-    
+
     def __init__(self, binary, targets):
         self.binary = binary
         self.targets = targets
@@ -103,21 +106,21 @@ class bVAE_IM(object):
         self.random_seed = seed
         if self.random_seed is not None:
             seed_all(self.random_seed)
-        
-        self.n_sample = n_sample # configs['opt']['n_sample']
+
+        self.n_sample = n_sample  # configs['opt']['n_sample']
         # self._initialize()
         self.sleep_count = 0
-        
+
     def decode_many_times(self, latent):
-        binary = F.one_hot(latent.long(),num_classes=2).float()
+        binary = F.one_hot(latent.long(), num_classes=2).float()
         binary = binary.view(1, -1)
         prob_decode = True
         binary_size = self.bvae_model.binary_size
         # ft_mean = latent[:, :latent_size]
         # rxn_mean = latent[:, latent_size:]
-        ft_mean = binary[:, :binary_size*2]
-        rxn_mean = binary[:, binary_size*2:]
-        product_list=[]
+        ft_mean = binary[:, :binary_size * 2]
+        rxn_mean = binary[:, binary_size * 2:]
+        product_list = []
         for i in range(50):
             generated_tree = self.bvae_model.fragment_decoder.decode(ft_mean, prob_decode)
             g_encoder_output, g_root_vec = self.bvae_model.fragment_encoder([generated_tree])
@@ -130,24 +133,23 @@ class bVAE_IM(object):
         else:
             return product_list
 
-
     def optimize(self, X_train, y_train, X_test, y_test, configs):
-        
-        n_opt = 100 # configs['opt']['num_end']
+
+        n_opt = 100  # configs['opt']['num_end']
         self.train_binary = torch.vstack((X_train, X_test))
         self.n_binary = self.train_binary.shape[1]
-        
-        self.valid_smiles =[]
-        self.new_features =[]
-        self.full_rxn_strs=[]
+
+        self.valid_smiles = []
+        self.new_features = []
+        self.full_rxn_strs = []
         self.X_train = X_train
         self.y_train = y_train
-        
+
         self.end_cond = configs['opt']['end_cond']
         if self.end_cond not in [0, 1, 2]:
             raise ValueError("end_cond should be 0, 1 or 2.")
         if self.end_cond == 2:
-            n_opt = 100 # n_opt is patience in this condition. When patience exceeds 100, exhaustion searching ends.
+            n_opt = 100  # n_opt is patience in this condition. When patience exceeds 100, exhaustion searching ends.
 
         self.results_smiles = []
         self.results_binary = []
@@ -173,28 +175,26 @@ class bVAE_IM(object):
         self.iteration = 0
 
         while self.iteration < n_opt:
-
             # train factorization machine
             qubo = self._build_qubo(X_train, X_test, y_train, y_test, configs)
 
-            solution, energy = self._solve_qubo(qubo = qubo,
-                                    qubo_solver = solver)
+            solution, energy = self._solve_qubo(qubo=qubo,
+                                                qubo_solver=solver)
 
             # merge new data into dataset
             self._update(solution=solution,
-                        energy=energy)
+                         energy=energy)
 
         result_save_dir = configs['opt']['output']
         if not os.path.exists(result_save_dir):
             os.mkdir(result_save_dir)
-        
+
         with open((os.path.join(result_save_dir, "%s_smiles.pkl" % configs['opt']['prop'])), "wb") as f:
             pickle.dump(self.results_smiles, f)
         with open((os.path.join(result_save_dir, "%s_scores.pkl" % configs['opt']['prop'])), "wb") as f:
             pickle.dump(self.results_scores, f)
-        
+
         logging.info("Sleeped for %d minutes..." % self.sleep_count)
-        
 
     # def _initialize(self):
     #     self.train_smiles = self.train_smiles.tolist()
@@ -225,13 +225,13 @@ class bVAE_IM(object):
     #     return train_binary
 
     def _build_qubo(self, X_train, X_valid, y_train, y_valid, configs):
-        
-        model = TorchFM(self.n_binary, configs['opt']['factor_num'])# .to(self.device)
+
+        model = TorchFM(self.n_binary, configs['opt']['factor_num'])  # .to(self.device)
         for param in model.parameters():
             if param.dim() == 1:
-                nn.init.constant_(param, 0)     # bias
+                nn.init.constant_(param, 0)  # bias
             else:
-                nn.init.uniform_(param, -configs['opt']['param_init'], configs['opt']['param_init'])   # weights
+                nn.init.uniform_(param, -configs['opt']['param_init'], configs['opt']['param_init'])  # weights
 
         # X_train, X_valid, y_train, y_valid = train_test_split(self.train_binary,
         #                                                 self.train_targets,
@@ -246,17 +246,17 @@ class bVAE_IM(object):
         print('========shape: ', X_train.shape, y_train.shape, X_test.shape, y_test.shape)
         dataset_train = MolData(X_train, y_train)
         dataloader_train = DataLoader(dataset=dataset_train,
-                                    batch_size=configs['opt']['batch_size'],
-                                    shuffle=True)
+                                      batch_size=configs['opt']['batch_size'],
+                                      shuffle=True)
         dataset_valid = MolData(X_valid, y_valid)
         dataloader_valid = DataLoader(dataset=dataset_valid,
-                                    batch_size=configs['opt']['batch_size'],
-                                    shuffle=False)
+                                      batch_size=configs['opt']['batch_size'],
+                                      shuffle=False)
 
         print('lr: ', configs['opt']['lr'])
         optimizer = torch.optim.Adam(model.parameters(),
-                                        lr=configs['opt']['lr'],
-                                        weight_decay=configs['opt']['decay_weight'])
+                                     lr=configs['opt']['lr'],
+                                     weight_decay=configs['opt']['decay_weight'])
         criterion = nn.MSELoss()
 
         lowest_error = float('inf')
@@ -283,23 +283,23 @@ class bVAE_IM(object):
                 epoch_error = epoch_error.detach().cpu().numpy()
                 if epoch % 100 == 0:
                     print("Model -- Epoch %d error on validation set: %.4f" % (epoch, epoch_error))
-                
+
                 if epoch_error < lowest_error:
                     torch.save(model.state_dict(),
-                                os.path.join(configs['opt']['cache'],
-                                "fm_model-%s-%s-dim%d-seed%d-end%d" % (
-                                    configs['opt']['prop'],
-                                    configs['opt']['client'],
-                                    self.n_binary,
-                                    self.random_seed,
-                                    self.end_cond)))
+                               os.path.join(configs['opt']['cache'],
+                                            "fm_model-%s-%s-dim%d-seed%d-end%d" % (
+                                                configs['opt']['prop'],
+                                                configs['opt']['client'],
+                                                self.n_binary,
+                                                self.random_seed,
+                                                self.end_cond)))
                     lowest_error = epoch_error
                     best_epoch = epoch
 
-                if epoch > best_epoch+configs['opt']['patience']:
+                if epoch > best_epoch + configs['opt']['patience']:
                     print("Model -- Epoch %d has lowest error!" % (best_epoch))
                     break
-        
+
         y_hat_valid = y_hat_valid.unsqueeze(1).detach().cpu().numpy()
         y_valid = y_valid.detach().cpu().numpy()
         print(y_hat_valid.shape, y_valid.shape)
@@ -307,35 +307,37 @@ class bVAE_IM(object):
         # reload best epoch
         model.load_state_dict(torch.load(
             os.path.join(configs['opt']['cache'],
-            "fm_model-%s-%s-dim%d-seed%d-end%d" % (
-                configs['opt']['prop'],
-                configs['opt']['client'],
-                self.n_binary,
-                self.random_seed,
-                self.end_cond)))
-            )
+                         "fm_model-%s-%s-dim%d-seed%d-end%d" % (
+                             configs['opt']['prop'],
+                             configs['opt']['client'],
+                             self.n_binary,
+                             self.random_seed,
+                             self.end_cond)))
+        )
 
         for p in model.parameters():
             if tuple(p.shape) == (self.n_binary, configs['opt']['factor_num']):
-                Vi_f= p.to("cpu").detach().numpy()
+                Vi_f = p.to("cpu").detach().numpy()
             elif tuple(p.shape) == (1, self.n_binary):
                 Wi = p.to("cpu").detach().numpy()
-            elif tuple(p.shape) == (1, ):
+            elif tuple(p.shape) == (1,):
                 W0 = p.to("cpu").detach().numpy()
 
         # build the QUBO graph
         q = gen_symbols(BinaryPoly, self.n_binary)
-        f_E = sum_poly(configs['opt']['factor_num'], lambda f: ((sum_poly(self.n_binary, lambda i: Vi_f[i][f] * q[i]))**2 - sum_poly(self.n_binary, lambda i: Vi_f[i][f]**2 * q[i]**2)))/2 \
-            + sum_poly(self.n_binary, lambda i: Wi[0][i]*q[i]) \
-            + W0[0]
+        f_E = sum_poly(configs['opt']['factor_num'], lambda f: (
+                    (sum_poly(self.n_binary, lambda i: Vi_f[i][f] * q[i])) ** 2 - sum_poly(self.n_binary,
+                                                                                           lambda i: Vi_f[i][f] ** 2 *
+                                                                                                     q[i] ** 2))) / 2 \
+              + sum_poly(self.n_binary, lambda i: Wi[0][i] * q[i]) \
+              + W0[0]
         qubo = (q, f_E)
 
         return qubo
 
-
     def _solve_qubo(self,
-        qubo,
-        qubo_solver):
+                    qubo,
+                    qubo_solver):
 
         if isinstance(qubo, tuple):
             q, qubo = qubo
@@ -345,7 +347,7 @@ class bVAE_IM(object):
             try:
                 result = qubo_solver.solve(qubo)
                 solved = True
-            except RuntimeError as e: # retry after 60s if connection to the solver fails..
+            except RuntimeError as e:  # retry after 60s if connection to the solver fails..
                 time.sleep(60)
                 self.sleep_count += 1
 
@@ -364,8 +366,8 @@ class bVAE_IM(object):
         return np.array(sols), np.array(sol_E).astype(np.float32)
 
     def _update(self,
-        solution,
-        energy):
+                solution,
+                energy):
 
         # 0 --> certain number of iterations;
         # 1 --> certain number of new molecule;
@@ -373,36 +375,49 @@ class bVAE_IM(object):
         if self.end_cond == 0:
             self.iteration += 1
 
-        binary_new = torch.from_numpy(solution).to(torch.float)# .to(self.device)
-        # smiles_new = self.bvae_model.decode_from_binary(binary_new)   # 1 x 1
-        # mol_new = Chem.MolFromSmiles(smiles_new)
-        print('========', binary_new.shape)
-        
-        
-        # 重要
-        res= self.decode_many_times(binary_new)
+        binary_new = torch.from_numpy(solution).to(torch.float)  # .to(self.device)
+        print('========binary_new shape')
+        print(binary_new.shape)
+
+        print('========now self.valid_smiles')
+        len(self.valid_smiles)
+        res = self.decode_many_times(binary_new)
+        print('========res shape')
+        print(res)
+
+        preLength = 0
+
         if res is not None:
             smiles_list = [re[0] for re in res]
             n_reactions = [len(re[1].split(" ")) for re in res]
-            #print(n_reactions)
+            # print(n_reactions)
             for re in res:
                 smiles = re[0]
-                if len(re[1].split(" ")) > 0 and smiles not in self.valid_smiles and smiles is not None:
-                    #print(smiles, re[1].split(" "))
+                if len(re[1].split(" ")) > 0 and smiles not in self.valid_smiles:
+                    # print(smiles, re[1].split(" "))
+                    preLength += 1
                     self.valid_smiles.append(smiles)
                     self.new_features.append(latent)
                     self.full_rxn_strs.append(re[1])
-        
-        #new_features = np.vstack(new_features)
+
         print('========cal new score')
-        scores =[]
-        b_valid_smiles=[]
-        b_full_rxn_strs=[]
-        b_scores=[]
-        # b_new_features=[]
-        for i in range(len(self.valid_smiles)):
-            if metric =="logp":
-                mol = rdkit.Chem.MolFromSmiles(self.valid_smiles[i])
+        scores = []
+        b_valid_smiles = []
+        b_full_rxn_strs = []
+        b_scores = []
+
+        if res is None:
+            print('========res is None')
+            return
+
+        if preLength == 0:
+            print("prelength = 0")
+            return
+
+        print("the number of molecule", preLength)
+        for i in range(preLength):
+            if metric == "logp":
+                mol = rdkit.Chem.MolFromSmiles(self.valid_smiles[-preLength + i])
                 if mol is None:
                     continue
                 current_log_P_value = Descriptors.MolLogP(mol)
@@ -411,7 +426,7 @@ class bVAE_IM(object):
                 if len(cycle_list) == 0:
                     cycle_length = 0
                 else:
-                    cycle_length = max([ len(j) for j in cycle_list ])
+                    cycle_length = max([len(j) for j in cycle_list])
                 if cycle_length <= 6:
                     cycle_length = 0
                 else:
@@ -422,66 +437,47 @@ class bVAE_IM(object):
                 current_cycle_score_normalized = (current_cycle_score - cycle_m) / cycle_s
                 score = current_SA_score_normalized + current_log_P_value_normalized + current_cycle_score_normalized
                 scores.append(-score)
-                b_valid_smiles.append(self.valid_smiles[i])
-                b_full_rxn_strs.append(self.full_rxn_strs[i])
-                # b_new_features.append(new_features[i])
-            if metric=="qed":
-                mol = rdkit.Chem.MolFromSmiles(self.valid_smiles[i])
-                if mol!=None:
+                b_valid_smiles.append(self.valid_smiles[-preLength + i])
+                b_full_rxn_strs.append(self.full_rxn_strs[-preLength + i])
+            if metric == "qed":
+                mol = rdkit.Chem.MolFromSmiles(self.valid_smiles[-preLength + i])
+                if mol != None:
                     score = QED.qed(mol)
                     scores.append(-score)
-                    b_valid_smiles.append(self.valid_smiles[i])
-                    b_full_rxn_strs.append(self.full_rxn_strs[i])
-                    # b_new_features.append(new_features[i])
-        # new_features = np.vstack(b_new_features)
-        if len(scores) > 0:
-            self.X_train = np.concatenate([ self.X_train, binary_new ], 0)
-            self.y_train = np.concatenate([ self.y_train, np.array(scores)[ :, None ] ], 0)
+                    b_valid_smiles.append(self.valid_smiles[-preLength + i])
+                    b_full_rxn_strs.append(self.full_rxn_strs[-preLength + i])
 
-        # for i in range(len(b_valid_smiles)):
-        #     line = " ".join([b_valid_smiles[i], b_full_rxn_strs[i], str(scores[i])])
-        #     writer.write(line + "\n")
+        if len(scores) >= 1:
+            b_scores = [i for i in scores]
 
-        # # skip invalid smiles
-        # if mol_new is None:
-        #     return
+            avg_score = np.mean(scores)
+            # to control the shape we just choose the mean value
+            scores = [avg_score]
 
-        # if smiles_new in self.train_smiles:
-        #     if self.end_cond == 2:
-        #         self.iteration += 1
-        #     return
+        if len(binary_new) > 0:
+            print('========update,the shape of x and y')
+            print(self.X_train.shape, self.y_train.shape)
+            print('========update,the value of binary_new and nparray')
+            print(binary_new, "\n", np.array(scores)[:, None])
+            self.X_train = np.concatenate([self.X_train, binary_new], 0)
+            self.y_train = np.concatenate([self.y_train, np.array(scores)[:, None]], 0)
+            print('========update,this is the shape of x_train and y_train after updated')
+            print(self.X_train.shape, self.y_train.shape)
 
-        # # fm_pred = fm_model(binary_new)
-        # # fm_pred = fm_pred.detach().cpu().numpy()
+        TaskID = os.environ["TaskID"]
 
-        # # assert np.round(fm_pred, 3) == np.round(energy[0], 3)    # ensure correctness of qubo
-        # if self.opt_target == 'max':
-        #     target_new = -self.get_score(mol_new)
-        # else:
-        #     target_new = self.get_score(mol_new)
-        # print("energy: %.3f; target: %.3f" % (energy[0], target_new))
-        # self.train_smiles.append(smiles_new)
-        # # self.train_binary = torch.vstack((self.train_binary, binary_new))
-        # binary_new = binary_new.to('cpu').numpy()
-        # self.train_binary = np.vstack((self.train_binary, binary_new))
-        # print(self.train_binary.shape)
-        # self.train_targets.append(target_new)
+        filename = "/home/gzou/test/Results/" + TaskID + "_qed.txt"
 
+        print("write to the qed as follow")
+        print(b_valid_smiles)
+        print(b_full_rxn_strs)
+        print(b_scores)
 
-        # # if new molecule is generated:
-        # if self.end_cond == 1:
-        #     self.iteration += 1
-        # if self.end_cond == 2:
-        #     self.iteration = 0 # if new molecule is generated, reset to 0
+        with open(filename, "a") as writer:
+            for i in range(len(b_valid_smiles)):
+                line = " ".join([b_valid_smiles[i], b_full_rxn_strs[i], str(b_scores[i])])
+                writer.write(line + "\n")
 
-        # self.results_smiles.append(smiles_new)
-        # self.results_binary.extend(solution)
-        # self.results_scores.append(-target_new)
-
-        # print(self.X_train.shape, self.y_train.shape, np.array(scores)[ :, None ].shape)
-        # logging.info("Iteration %d: QUBO energy -- %.4f, actual energy -- %.4f, smiles -- %s" % (self.iteration, energy[0]))
-        
-        print(f"X_train shape: {self.X_train.shape}, y_train shape: {self.y_train.shape}")
         assert self.X_train.shape[0] == self.y_train.shape[0]
 
         return
@@ -494,7 +490,7 @@ def main(X_train, y_train, X_test, y_test, smiles, targets, model, parameters, c
     y_test = torch.Tensor(y_test)
 
     optimizer = bVAE_IM(smiles=smiles, targets=targets, bvae_model=model, seed=seed)
-    
+
     start_time = time.time()
 
     optimizer.optimize(X_train, y_train, X_test, y_test, configs)
@@ -531,15 +527,13 @@ if __name__ == "__main__":
     metric = opts.metric
     seed = int(opts.seed)
 
-
     # load model
     if torch.cuda.is_available():
-        #device = torch.device("cuda:1")
+        # device = torch.device("cuda:1")
         device = torch.device("cuda")
         torch.cuda.set_device(1)
     else:
         device = torch.device("cpu")
-
 
     print("hidden size:", hidden_size, "latent_size:", latent_size, "depth:", depth)
     print("loading data.....")
@@ -557,16 +551,14 @@ if __name__ == "__main__":
     print("size of reactant dic:", reactantDic.size())
     print("size of template dic:", templateDic.size())
 
-
     n_pairs = len(routes)
     ind_list = [i for i in range(n_pairs)]
-    # fgm_trees = [FragmentTree(rxn_trees[i].molecule_nodes[0].smiles) for i in ind_list]
-    fgm_trees = pickle.load(open('fgm_trees.pkl', 'rb'))
+    fgm_trees = [FragmentTree(rxn_trees[i].molecule_nodes[0].smiles) for i in ind_list]
     rxn_trees = [rxn_trees[i] for i in ind_list]
-    data_pairs=[]
+    data_pairs = []
     for fgm_tree, rxn_tree in zip(fgm_trees, rxn_trees):
         data_pairs.append((fgm_tree, rxn_tree))
-    cset=set()
+    cset = set()
     for fgm_tree in fgm_trees:
         for node in fgm_tree.nodes:
             cset.add(node.smiles)
@@ -574,37 +566,36 @@ if __name__ == "__main__":
     if vocab_path is None:
         fragmentDic = FragmentVocab(cset)
     else:
-        fragmentDic = FragmentVocab(cset, filename =vocab_path)
+        fragmentDic = FragmentVocab(cset, filename=vocab_path)
 
     print("size of fragment dic:", fragmentDic.size())
-
-
 
     # loading model
 
     mpn = MPN(hidden_size, depth)
-    model = bFTRXNVAE(fragmentDic, reactantDic, templateDic, hidden_size, latent_size, depth, device, fragment_embedding=None, reactant_embedding=None, template_embedding=None)
+    model = bFTRXNVAE(fragmentDic, reactantDic, templateDic, hidden_size, latent_size, depth, device,
+                      fragment_embedding=None, reactant_embedding=None, template_embedding=None)
     checkpoint = torch.load(w_save_path, map_location=device)
     model.load_state_dict(checkpoint)
     print("finished loading model...")
 
     print("number of samples:", len(data_pairs))
     data_pairs = data_pairs
-    latent_list=[]
-    score_list=[]
+    latent_list = []
+    score_list = []
     print("num of samples:", len(rxn_trees))
-    latent_list =[]
-    score_list=[]
-    if metric =="qed":
-        for i, data_pair in enumerate(data_pairs[:100]):
+    latent_list = []
+    score_list = []
+    if metric == "qed":
+        for i, data_pair in enumerate(data_pairs):
             latent = model.encode([data_pair])
-            #print(i, latent.size(), latent)
+            # print(i, latent.size(), latent)
             latent_list.append(latent[0])
             rxn_tree = data_pair[1]
             smiles = rxn_tree.molecule_nodes[0].smiles
             score_list.append(get_qed_score(smiles))
             print(i, len(score_list))
-    if metric =="logp":
+    if metric == "logp":
         logP_values = np.loadtxt('logP_values.txt')
         SA_scores = np.loadtxt('SA_scores.txt')
         cycle_scores = np.loadtxt('cycle_scores.txt')
@@ -625,22 +616,22 @@ if __name__ == "__main__":
             score_list.append(get_clogp_score(smiles, logp_m, logp_s, sascore_m, sascore_s, cycle_m, cycle_s))
     latents = torch.stack(latent_list, dim=0)
     scores = np.array(score_list)
-    scores = scores.reshape((-1,1))
+    scores = scores.reshape((-1, 1))
     latents = latents.detach().numpy()
     n = latents.shape[0]
     print('===================', n)
-    permutation = np.random.choice(n, n, replace = False)
-    X_train = latents[ permutation, : ][ 0 : int(np.round(0.9 * n)), : ]
-    X_test = latents[ permutation, : ][ int(np.round(0.9 * n)) :, : ]
-    y_train = -scores[ permutation ][ 0 : int(np.round(0.9 * n)) ]
-    y_test = -scores[ permutation ][ int(np.round(0.9 * n)) : ]
+    permutation = np.random.choice(n, n, replace=False)
+    X_train = latents[permutation, :][0: int(np.round(0.9 * n)), :]
+    X_test = latents[permutation, :][int(np.round(0.9 * n)):, :]
+    y_train = -scores[permutation][0: int(np.round(0.9 * n))]
+    y_test = -scores[permutation][int(np.round(0.9 * n)):]
     print(X_train.shape, X_test.shape, y_train.shape, y_test.shape)
     if metric == "logp":
         parameters = [logp_m, logp_s, sascore_m, sascore_s, cycle_m, cycle_s]
-    else: 
-        parameters =[]
-    
-    with open('config/config.yaml','r') as f:
+    else:
+        parameters = []
+
+    with open('config/config.yaml', 'r') as f:
         configs = yaml.safe_load(f)
 
     main(X_train, y_train, X_test, y_test, molecules, -scores, model, parameters, configs, metric, seed)

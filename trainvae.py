@@ -1,3 +1,4 @@
+import os
 import sys
 sys.path.append('./rxnft_vae')
 
@@ -20,6 +21,8 @@ from rxnft_vae.vae import FTRXNVAE, set_batch_nodeID, bFTRXNVAE
 from rxnft_vae.mpn import MPN,PP,Discriminator
 import rxnft_vae.sascorer as sascorer
 import random
+
+TaskID =os.environ["TaskID"]
 
 def schedule(counter, M):
 	x = counter/(2*M)
@@ -92,10 +95,10 @@ def train(data_pairs, model,args):
 			total_molecule_distance_loss += molecule_distance_loss
 			total_molecule_label_loss += molecule_label_loss
 			total_label_acc += label_acc
-			if (it+1) %10 ==0:
-				torch.save(model.state_dict(),args['datasetname']+ "_" + "vae_iter-{}.npy".format(epoch+1))
-				print("saving file:", args['save_path']+"/"+ args['datasetname']+ "_" + "vae_iter-{}.npy".format(epoch+1))
-				break
+			# if (it+1) %10 ==0:
+			# 	torch.save(model.state_dict(),args['datasetname']+ "_" + "vae_iter-{}-with{}.npy".format(epoch+1,TaskID))
+			# 	print("saving file:", args['save_path']+"/"+ args['datasetname']+ "_" + "vae_iter-{}-with{}.npy".format(epoch+1,TaskID))
+			# 	break
 				
 		print("*******************Epoch", epoch, "******************", counter, beta)
 		val_loss = validate(val_pairs, model, args)
@@ -108,8 +111,8 @@ def train(data_pairs, model,args):
 		print("---> reconstruction loss:", total_loss.item()/len(dataloader)-beta * total_kl_loss.item()/len(dataloader))
 		
 		if (epoch+1) %10 ==0:
-			torch.save(model.state_dict(),args['datasetname']+ "_" + "vae_iter-{}.npy".format(epoch+1))
-			print("saving file:", args['save_path']+"/"+ args['datasetname']+ "_" + "vae_iter-{}.npy".format(epoch+1))
+			torch.save(model.state_dict(),args['datasetname']+ "_" + "vae_iter-{}-with{}.npy".format(epoch+1,TaskID))
+			print("saving file:", args['save_path']+"/"+ args['datasetname']+ "_" + "vae_iter-{}-with{}.npy".format(epoch+1,TaskID))
 
 def validate(data_pairs, model, args):
 	#model.eval()
@@ -226,7 +229,3 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 mpn = MPN(hidden_size, depth)
 model = bFTRXNVAE(fragmentDic, reactantDic, templateDic, hidden_size, latent_size, depth, device, fragment_embedding=None, reactant_embedding=None, template_embedding=None)
 train(data_pairs, model,args)
-
-
-
-

@@ -364,124 +364,111 @@ class bVAE_IM(object):
             sols.append(solution)
             sol_E.append(sol.energy)
         return np.array(sols), np.array(sol_E).astype(np.float32)
-
     def _update(self,
-                solution,
-                energy):
+            solution,
+            energy):
 
-        # 0 --> certain number of iterations;
-        # 1 --> certain number of new molecule;
-        # 2 --> exhaustion
+        # 根据结束条件更新迭代次数
         if self.end_cond == 0:
             self.iteration += 1
 
-        binary_new = torch.from_numpy(solution).to(torch.float)  # .to(self.device)
+        binary_new = torch.from_numpy(solution).to(torch.float)
         print('========binary_new shape')
         print(binary_new.shape)
 
-        print('========now self.valid_smiles')
-        len(self.valid_smiles)
+        # 解码生成分子
         res = self.decode_many_times(binary_new)
-        print('========res shape')
+        print('========res')
         print(res)
-
-        preLength = 0
-
-        if res is not None:
-            smiles_list = [re[0] for re in res]
-            n_reactions = [len(re[1].split(" ")) for re in res]
-            # print(n_reactions)
-            for re in res:
-                smiles = re[0]
-                if len(re[1].split(" ")) > 0 and smiles not in self.valid_smiles:
-                    # print(smiles, re[1].split(" "))
-                    preLength += 1
-                    self.valid_smiles.append(smiles)
-                    self.new_features.append(latent)
-                    self.full_rxn_strs.append(re[1])
-
-        print('========cal new score')
-        scores = []
-        b_valid_smiles = []
-        b_full_rxn_strs = []
-        b_scores = []
 
         if res is None:
             print('========res is None')
             return
 
+        preLength = 0
+        new_smiles = []
+        new_rxn_strs = []
+
+        for re in res:
+            smiles = re[0]
+            if len(re[1].split(" ")) > 0 and smiles not in self.valid_smiles:
+                preLength += 1
+                self.valid_smiles.append(smiles)
+                self.new_features.append(latent)
+                self.full_rxn_strs.append(re[1])
+                new_smiles.append(smiles)
+                new_rxn_strs.append(re[1])
+
         if preLength == 0:
-            print("prelength = 0")
+            print("No new valid molecules generated.")
             return
 
-        print("the number of molecule", preLength)
+        print("Number of new molecules:", preLength)
+
+        # 计算每个新分子的分数
+        scores = []
+        b_valid_smiles = []
+        b_full_rxn_strs = []
+        b_scores = []
+
         for i in range(preLength):
+            mol = rdkit.Chem.MolFromSmiles(new_smiles[i])
+            if mol is None:
+                continue
             if metric == "logp":
-                mol = rdkit.Chem.MolFromSmiles(self.valid_smiles[-preLength + i])
-                if mol is None:
-                    continue
                 current_log_P_value = Descriptors.MolLogP(mol)
                 current_SA_score = -sascorer.calculateScore(mol)
                 cycle_list = nx.cycle_basis(nx.Graph(rdmolops.GetAdjacencyMatrix(mol)))
-                if len(cycle_list) == 0:
-                    cycle_length = 0
-                else:
-                    cycle_length = max([len(j) for j in cycle_list])
-                if cycle_length <= 6:
-                    cycle_length = 0
-                else:
-                    cycle_length = cycle_length - 6
+                cycle_length = max([len(j) for j in cycle_list]) if cycle_list else 0
+                cycle_length = max(0, cycle_length - 6)
                 current_cycle_score = -cycle_length
                 current_SA_score_normalized = (current_SA_score - sascore_m) / sascore_s
                 current_log_P_value_normalized = (current_log_P_value - logp_m) / logp_s
                 current_cycle_score_normalized = (current_cycle_score - cycle_m) / cycle_s
                 score = current_SA_score_normalized + current_log_P_value_normalized + current_cycle_score_normalized
                 scores.append(-score)
-                b_valid_smiles.append(self.valid_smiles[-preLength + i])
-                b_full_rxn_strs.append(self.full_rxn_strs[-preLength + i])
-            if metric == "qed":
-                mol = rdkit.Chem.MolFromSmiles(self.valid_smiles[-preLength + i])
-                if mol != None:
-                    score = QED.qed(mol)
-                    scores.append(-score)
-                    b_valid_smiles.append(self.valid_smiles[-preLength + i])
-                    b_full_rxn_strs.append(self.full_rxn_strs[-preLength + i])
+            elif metric == "qed":
+                score = QED.qed(mol)
+                scores.append(-score)
+            else:
+                raise ValueError("Unsupported metric: {}".format(metric))
+            b_valid_smiles.append(new_smiles[i])
+            b_full_rxn_strs.append(new_rxn_strs[i])
 
         if len(scores) >= 1:
-            b_scores = [i for i in scores]
-
+            b_scores = scores.copy()
             avg_score = np.mean(scores)
-            # to control the shape we just choose the mean value
-            scores = [avg_score]
+            # 使用平均分数更新训练集
+            training_score = [avg_score]
+        else:
+            print("No valid scores calculated.")
+            return
 
+        # 更新训练集
         if len(binary_new) > 0:
-            print('========update,the shape of x and y')
-            print(self.X_train.shape, self.y_train.shape)
-            print('========update,the value of binary_new and nparray')
-            print(binary_new, "\n", np.array(scores)[:, None])
+            print('========Updating training set')
+            print('X_train shape before update:', self.X_train.shape)
+            print('y_train shape before update:', self.y_train.shape)
             self.X_train = np.concatenate([self.X_train, binary_new], 0)
-            self.y_train = np.concatenate([self.y_train, np.array(scores)[:, None]], 0)
-            print('========update,this is the shape of x_train and y_train after updated')
-            print(self.X_train.shape, self.y_train.shape)
+            self.y_train = np.concatenate([self.y_train, np.array(training_score)[:, None]], 0)
+            print('X_train shape after update:', self.X_train.shape)
+            print('y_train shape after update:', self.y_train.shape)
 
-        TaskID = os.environ["TaskID"]
+        # 保存新分子及其分数
+        TaskID = os.environ.get("TaskID", "default_task")
 
-        filename = "/home/gzou/test/Results/" + TaskID + "_qed.txt"
+        filename = "/home/gzou/Experiments/Results" + TaskID + "_qed.txt"
 
-        print("write to the qed as follow")
-        print(b_valid_smiles)
-        print(b_full_rxn_strs)
-        print(b_scores)
-
+        print("Writing to file:", filename)
         with open(filename, "a") as writer:
             for i in range(len(b_valid_smiles)):
                 line = " ".join([b_valid_smiles[i], b_full_rxn_strs[i], str(b_scores[i])])
                 writer.write(line + "\n")
 
+        # 确保训练集和标签集的长度一致
         assert self.X_train.shape[0] == self.y_train.shape[0]
 
         return
-
 
 def main(X_train, y_train, X_test, y_test, smiles, targets, model, parameters, configs, metric, seed):
     X_train = torch.Tensor(X_train)

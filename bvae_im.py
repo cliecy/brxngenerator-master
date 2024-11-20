@@ -53,8 +53,6 @@ UPDATE_ITER = 1
 class TorchFM(nn.Module):
 
     def __init__(self, n=None, k=None):
-        # n: size of binary features
-        # k: size of latent features
         super().__init__()
         self.V = nn.Parameter(torch.randn(n, k), requires_grad=True)
         self.lin = nn.Linear(n, 1)
@@ -108,7 +106,6 @@ class bVAE_IM(object):
             seed_all(self.random_seed)
 
         self.n_sample = n_sample  # configs['opt']['n_sample']
-        # self._initialize()
         self.sleep_count = 0
 
     def decode_many_times(self, latent):
@@ -116,8 +113,6 @@ class bVAE_IM(object):
         binary = binary.view(1, -1)
         prob_decode = True
         binary_size = self.bvae_model.binary_size
-        # ft_mean = latent[:, :latent_size]
-        # rxn_mean = latent[:, latent_size:]
         ft_mean = binary[:, :binary_size * 2]
         rxn_mean = binary[:, binary_size * 2:]
         product_list = []
@@ -127,7 +122,6 @@ class bVAE_IM(object):
             product, reactions = self.bvae_model.rxn_decoder.decode(rxn_mean, g_encoder_output, prob_decode)
             if product != None:
                 product_list.append([product, reactions])
-            # break
         if len(product_list) == 0:
             return None
         else:
@@ -155,33 +149,21 @@ class bVAE_IM(object):
         self.results_binary = []
         self.results_scores = []
 
-        # # config Ising machine
 
-        # client = configs['opt']['client']
         client = FixstarsClient()
         client.token = configs['opt']['client_token']
         client.parameters.timeout = 1000
-        # elif client == "dwave":
-        #     client = DWaveSamplerClient()
-        #     client.token = configs['opt']['client_token']
-        #     client.solver = configs['opt']['dwave_sys']
-        #     client.parameters.num_reads = 1000
-        #     client.parameters.max_answers = 1
-        # else:
-        #     raise ValueError("Wrong client!")
 
         solver = Solver(client)
 
         self.iteration = 0
 
         while self.iteration < n_opt:
-            # train factorization machine
             qubo = self._build_qubo(X_train, X_test, y_train, y_test, configs)
 
             solution, energy = self._solve_qubo(qubo=qubo,
                                                 qubo_solver=solver)
 
-            # merge new data into dataset
             self._update(solution=solution,
                          energy=energy)
 
@@ -196,33 +178,9 @@ class bVAE_IM(object):
 
         logging.info("Sleeped for %d minutes..." % self.sleep_count)
 
-    # def _initialize(self):
-    #     self.train_smiles = self.train_smiles.tolist()
-    #     self.train_targets = self.train_targets.astype('float')
-    #     self.train_mols = [Chem.MolFromSmiles(s) for s in self.train_smiles]
 
-    #     self.train_binary = self._encode_to_binary(self.train_smiles)
 
-    #     if self.opt_target == 'max':
-    #         self.train_targets = [-self.get_score(m) for m in self.train_mols]
-    #     elif self.opt_target == 'min':
-    #         self.train_targets = [self.get_score(m) for m in self.train_mols]
-    #     self.train_targets = np.repeat(self.train_targets, self.n_sample).tolist()
-    #     # plus --> minimization; minus --> maximization
 
-    # def _encode_to_binary(self, smiles, batch_size = 64):
-    #     encoded = []
-    #     print("encoding molecules to binary sequences...")
-    #     for i in tqdm(range(int(np.ceil(len(smiles) / batch_size)))):
-    #         smiles_batch = smiles[i*batch_size: (i+1)*batch_size]
-    #         if self.n_sample == 1:
-    #             encoded_batch = self.bvae_model.encode_from_smiles(smiles_batch)
-    #         else:
-    #             encoded_batch = self.bvae_model.encode_from_smiles(smiles_batch, self.n_sample)
-    #         encoded.append(encoded_batch)
-    #     train_binary = torch.vstack(encoded)
-    #     train_binary = train_binary.to('cpu').numpy()
-    #     return train_binary
 
     def _build_qubo(self, X_train, X_valid, y_train, y_valid, configs):
 
@@ -233,15 +191,7 @@ class bVAE_IM(object):
             else:
                 nn.init.uniform_(param, -configs['opt']['param_init'], configs['opt']['param_init'])  # weights
 
-        # X_train, X_valid, y_train, y_valid = train_test_split(self.train_binary,
-        #                                                 self.train_targets,
-        #                                                 test_size=0.1,
-        #                                                 random_state=self.iteration)
 
-        # X_train = torch.from_numpy(X_train).to(torch.float).to(self.device)
-        # X_valid = torch.from_numpy(X_valid).to(torch.float).to(self.device)
-        # y_train = torch.tensor(y_train).to(torch.float).to(self.device)
-        # y_valid = torch.tensor(y_valid).to(torch.float).to(self.device)
 
         print('========shape: ', X_train.shape, y_train.shape, X_test.shape, y_test.shape)
         dataset_train = MolData(X_train, y_train)
@@ -303,8 +253,6 @@ class bVAE_IM(object):
         y_hat_valid = y_hat_valid.unsqueeze(1).detach().cpu().numpy()
         y_valid = y_valid.detach().cpu().numpy()
         print(y_hat_valid.shape, y_valid.shape)
-        # print(np.corrcoef(y_hat_valid, y_valid))
-        # reload best epoch
         model.load_state_dict(torch.load(
             os.path.join(configs['opt']['cache'],
                          "fm_model-%s-%s-dim%d-seed%d-end%d" % (
@@ -323,7 +271,6 @@ class bVAE_IM(object):
             elif tuple(p.shape) == (1,):
                 W0 = p.to("cpu").detach().numpy()
 
-        # build the QUBO graph
         q = gen_symbols(BinaryPoly, self.n_binary)
         f_E = sum_poly(configs['opt']['factor_num'], lambda f: (
                     (sum_poly(self.n_binary, lambda i: Vi_f[i][f] * q[i])) ** 2 - sum_poly(self.n_binary,
@@ -354,7 +301,6 @@ class bVAE_IM(object):
         sols = []
         sol_E = []
         for sol in result:  # Iterate over multiple solutions
-            # solution = [sol.values[i] for i in range(self.n_binary)]
             if isinstance(qubo, BinaryMatrix):
                 solution = [sol.values[i] for i in range(self.n_binary)]
             elif isinstance(qubo, BinaryPoly):
@@ -368,7 +314,6 @@ class bVAE_IM(object):
             solution,
             energy):
 
-        # 根据结束条件更新迭代次数
         if self.end_cond == 0:
             self.iteration += 1
 
@@ -376,7 +321,6 @@ class bVAE_IM(object):
         print('========binary_new shape')
         print(binary_new.shape)
 
-        # 解码生成分子
         res = self.decode_many_times(binary_new)
         print('========res')
         print(res)
@@ -405,7 +349,6 @@ class bVAE_IM(object):
 
         print("Number of new molecules:", preLength)
 
-        # 计算每个新分子的分数
         scores = []
         b_valid_smiles = []
         b_full_rxn_strs = []
@@ -416,18 +359,25 @@ class bVAE_IM(object):
             if mol is None:
                 continue
             if metric == "logp":
-                current_log_P_value = Descriptors.MolLogP(mol)
-                current_SA_score = -sascorer.calculateScore(mol)
-                cycle_list = nx.cycle_basis(nx.Graph(rdmolops.GetAdjacencyMatrix(mol)))
-                cycle_length = max([len(j) for j in cycle_list]) if cycle_list else 0
-                cycle_length = max(0, cycle_length - 6)
-                current_cycle_score = -cycle_length
-                current_SA_score_normalized = (current_SA_score - sascore_m) / sascore_s
-                current_log_P_value_normalized = (current_log_P_value - logp_m) / logp_s
-                current_cycle_score_normalized = (current_cycle_score - cycle_m) / cycle_s
-                score = current_SA_score_normalized + current_log_P_value_normalized + current_cycle_score_normalized
+                print('========computing logp of molecule{}'.format(i))
+                logP_values = np.loadtxt('logP_values.txt')
+                SA_scores = np.loadtxt('SA_scores.txt')
+                cycle_scores = np.loadtxt('cycle_scores.txt')
+
+                logp_m = np.mean(logP_values)
+                logp_s = np.std(logP_values)
+
+                sascore_m = np.mean(SA_scores)
+                sascore_s = np.std(SA_scores)
+
+                cycle_m = np.mean(cycle_scores)
+                cycle_s = np.std(cycle_scores)
+                smiles = new_smiles[i]
+                scores.append(get_clogp_score(smiles, logp_m, logp_s, sascore_m, sascore_s, cycle_m, cycle_s))
                 scores.append(-score)
+
             elif metric == "qed":
+                print('========computing qed of molecule{}'.format(i))
                 score = QED.qed(mol)
                 scores.append(-score)
             else:
@@ -438,13 +388,11 @@ class bVAE_IM(object):
         if len(scores) >= 1:
             b_scores = scores.copy()
             avg_score = np.mean(scores)
-            # 使用平均分数更新训练集
             training_score = [avg_score]
         else:
             print("No valid scores calculated.")
             return
 
-        # 更新训练集
         if len(binary_new) > 0:
             print('========Updating training set')
             print('X_train shape before update:', self.X_train.shape)
@@ -454,10 +402,12 @@ class bVAE_IM(object):
             print('X_train shape after update:', self.X_train.shape)
             print('y_train shape after update:', self.y_train.shape)
 
-        # 保存新分子及其分数
         TaskID = os.environ.get("TaskID", "default_task")
 
-        filename = "/home/gzou/Experiments/Results" + TaskID + "_qed.txt"
+        if metric == "logp":
+            filename = "/home/gzou/Experiments/Results" + TaskID + "_logp.txt"
+        elif metric == "qed":
+            filename = "/home/gzou/Experiments/Results" + TaskID + "_qed.txt"
 
         print("Writing to file:", filename)
         with open(filename, "a") as writer:
@@ -465,7 +415,6 @@ class bVAE_IM(object):
                 line = " ".join([b_valid_smiles[i], b_full_rxn_strs[i], str(b_scores[i])])
                 writer.write(line + "\n")
 
-        # 确保训练集和标签集的长度一致
         assert self.X_train.shape[0] == self.y_train.shape[0]
 
         return
@@ -504,7 +453,6 @@ if __name__ == "__main__":
     parser.add_option("-r", "--seed", dest="seed", default=1)
     opts, _ = parser.parse_args()
 
-    # get parameters
     hidden_size = int(opts.hidden_size)
     latent_size = int(opts.latent_size)
     depth = int(opts.depth)
@@ -514,9 +462,7 @@ if __name__ == "__main__":
     metric = opts.metric
     seed = int(opts.seed)
 
-    # load model
     if torch.cuda.is_available():
-        # device = torch.device("cuda:1")
         device = torch.device("cuda")
         torch.cuda.set_device(1)
     else:
@@ -526,8 +472,6 @@ if __name__ == "__main__":
     print("loading data.....")
     data_filename = opts.data_path
     routes, scores = read_multistep_rxns(data_filename)
-    # routes = routes[:10]
-    # scores = scores[:10]
     rxn_trees = [ReactionTree(route) for route in routes]
     molecules = [rxn_tree.molecule_nodes[0].smiles for rxn_tree in rxn_trees]
     reactants = extract_starting_reactants(rxn_trees)
@@ -557,7 +501,6 @@ if __name__ == "__main__":
 
     print("size of fragment dic:", fragmentDic.size())
 
-    # loading model
 
     mpn = MPN(hidden_size, depth)
     model = bFTRXNVAE(fragmentDic, reactantDic, templateDic, hidden_size, latent_size, depth, device,
@@ -576,7 +519,6 @@ if __name__ == "__main__":
     if metric == "qed":
         for i, data_pair in enumerate(data_pairs):
             latent = model.encode([data_pair])
-            # print(i, latent.size(), latent)
             latent_list.append(latent[0])
             rxn_tree = data_pair[1]
             smiles = rxn_tree.molecule_nodes[0].smiles
